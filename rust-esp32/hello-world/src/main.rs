@@ -5,7 +5,7 @@ use embedded_svc::{
     io::{Read, Write},
     wifi::{AuthMethod, ClientConfiguration, Configuration},
 };
-use esp32_nimble::{BLEDevice, BLEScan};
+use esp32_nimble::{enums::AdvType, BLEDevice, BLEScan};
 use esp_idf_svc::hal::task::block_on;
 use esp_idf_svc::hal::{
     prelude::Peripherals,
@@ -66,7 +66,7 @@ fn main() -> anyhow::Result<()> {
     let config = TransmitConfig::new().clock_divider(1);
     let mut tx = TxRmtDriver::new(channel, led, &config)?;
 
-    neopixel(Rgb::new(0, 0, 25), &mut tx)?;
+    neopixel(Rgb::new(0, 0, 10), &mut tx)?;
 
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
@@ -139,21 +139,45 @@ fn main() -> anyhow::Result<()> {
         ble_scan.active_scan(true).interval(100).window(99);
 
         ble_scan
-            .start(ble_device, 5000, |device, data| {
-                info!("Advertised Device: ({:?}, {:?})", device, data);
+            .start(
+                ble_device,
+                120000,
+                |device: &esp32_nimble::BLEAdvertisedDevice,
+                 data: esp32_nimble::BLEAdvertisedData<&[u8]>| {
+                    // info!("Advertised Device: ({:?}, {:?})", device, data);
 
-                for mac in [
-                    "A4:C1:38:4E:2D:5C", // Salon
-                    "A4:C1:38:CD:F2:86", // Chambre
-                    "A4:C1:38:D7:70:32", // Bébé
-                ] {
-                    if device.addr().to_string() == mac {
-                        info!("\n\n \\o/ Found device: {:?} {:?}\n\n", device, data);
+                    let room_option = match device.addr().to_string().as_str() {
+                        "A4:C1:38:4E:2D:5C" => Some("Salon"),
+                        "A4:C1:38:CD:F2:86" => Some("Chambre"),
+                        "A4:C1:38:D7:70:32" => Some("Bébé"),
+                        _ => None,
+                    };
+
+                    if device.adv_type() == AdvType::Ind {
+                        // info!("\\o/ Found device: {:?} {:?} {:?}", room, device, data);
+
+                        // 0xFE95 Xiaomi Inc.
+                        // First byte of payload
+                        //  Asynchronous Data	0x02
+
+                        info!(
+                            "mac : {:?} payload : {:?}",
+                            device.addr(),
+                            data.payload()
+                                .into_iter()
+                                .map(|x| format!("{:02X}", x))
+                                .collect::<Vec<String>>()
+                                .join(" ")
+                        );
+
+                        if let Some(temp) = ble_decode::decode_frame_data(data.payload()) {
+                            info!("Temperature {:?} : {}°C", room_option, temp);
+                        }
                     }
-                }
 
-                None::<()>
-            })
+                    None::<()>
+                },
+            )
             .await?;
 
         info!("Scan end");

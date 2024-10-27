@@ -33,18 +33,40 @@
       /><br />
       <label for="birthplace">Birthplace:</label>
       <input type="text" id="birthplace" name="birthplace" required /><br />
-      <input type="color" name="color" value="#FFFFFF" />
+      <input type="color" id="color-input" name="color" value="#FFFFFF" />
       <input type="submit" value="Submit" />
     </form>
     <p id="server-resp"></p>
     <script type="text/javascript">
       let theForm = document.getElementById("the-form");
+      let colorInput = document.getElementById("color-input");
       let serverResp = document.getElementById("server-resp");
 
       theForm.addEventListener("submit", async (e) => {
         e.preventDefault();
 
         let form = e.currentTarget;
+        let url = form.action;
+
+        try {
+          let entries = Object.fromEntries(new FormData(form).entries());
+          entries["age"] = parseInt(entries["age"]);
+          let resp = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(entries),
+          });
+          serverResp.innerText = await resp.text();
+        } catch (err) {
+          console.error(err);
+        }
+      });
+
+      colorInput.addEventListener("input", async (e) => {
+        let form = theForm;
         let url = form.action;
 
         try {
