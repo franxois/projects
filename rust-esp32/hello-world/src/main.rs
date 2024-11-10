@@ -25,6 +25,8 @@ use rgb::Rgb;
 use rmt_neopixel::neopixel;
 use serde::Deserialize;
 
+use ble_decode::Decryptor;
+
 #[macro_use]
 extern crate dotenv_codegen;
 
@@ -170,7 +172,9 @@ fn main() -> anyhow::Result<()> {
                                 .join(" ")
                         );
 
-                        if let Some(temp) = ble_decode::decode_frame_data(data.payload()) {
+                        let decryptor = Decryptor::new();
+
+                        if let Some(temp) = decryptor.decode_frame_data(data.payload()) {
                             info!("Temperature {:?} : {}°C", room_option, temp);
                         }
                     }

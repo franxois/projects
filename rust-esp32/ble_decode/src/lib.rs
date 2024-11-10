@@ -24,97 +24,7 @@ pub fn encode_hex(bytes: &[u8]) -> String {
         .join(" ")
 }
 
-pub fn decode_frame_data(data: &[u8]) -> Option<f32> {
-    // println!("Bytes: {:?} ({:?})", encode_hex(data), data.len());
-
-    // TODO, read device list only once at startup
-    let devices: Vec<Device> = serde_json::from_str(DEVICES_JSON).unwrap();
-
-    if data.len() < 26 {
-        return None;
-    }
-
-    let mac_string = format!(
-        "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-        data[17], data[16], data[15], data[14], data[13], data[12]
-    );
-
-    let device_idx = devices.into_iter().find(|d| d.mac == mac_string);
-
-    if let Some(device) = device_idx {
-        let nonce: [u8; 12] = [
-            data[12], data[13], data[14], data[15], data[16], data[17], // device mac
-            data[9], data[10], // device type
-            data[11], // frame cnt
-            data[23], data[24], data[25], // ext.cnt
-        ];
-
-        let nonce: &GenericArray<u8, U12> = GenericArray::from_slice(&nonce);
-
-        let key = decode_hex(&device.key).expect("Unable to decode key");
-
-        let cipher = Aes128Ccm::new_from_slice(&key).unwrap();
-
-        let encrypted_data: &[u8] = &data[18..23];
-        let tag = &data[26..];
-
-        let to_decrypt = [encrypted_data, tag].concat();
-
-        let payload = Payload {
-            msg: &to_decrypt,
-            aad: &[0x11],
-        };
-
-        // println!("Nonce: {:?} ({:?})", encode_hex(&nonce), nonce.len());
-
-        // println!(
-        //     "To decrypt: {:?} ({:?})",
-        //     encode_hex(&to_decrypt),
-        //     to_decrypt.len()
-        // );
-
-        let plain_data = cipher.decrypt(nonce, payload);
-
-        if let Ok(plain_data) = plain_data {
-            let temp = (plain_data[4] as f32 * 16.0 + plain_data[3] as f32) / 10.0;
-
-            if plain_data[0] == 4 {
-                println!("Je renvoie {:?}", temp);
-                return Some(temp);
-            }
-
-            println!(
-                "Decrypted: {:?} {:?} : {:?}",
-                encode_hex(&plain_data),
-                plain_data,
-                if plain_data[0] == 4 {
-                    "TEMP"
-                } else {
-                    "HUMIDITY"
-                },
-            );
-
-            println!(
-                "{:?} {:?} {:?} {:?}",
-                (plain_data[1] as f32 * 16.0 + plain_data[0] as f32) / 10.0,
-                (plain_data[2] as f32 * 16.0 + plain_data[1] as f32) / 10.0,
-                (plain_data[3] as f32 * 16.0 + plain_data[2] as f32) / 10.0,
-                (plain_data[4] as f32 * 16.0 + plain_data[3] as f32) / 10.0,
-            );
-            println!(
-                "{:?} {:?} {:?} {:?}",
-                (plain_data[0] as f32 * 16.0 + plain_data[1] as f32) / 10.0,
-                (plain_data[1] as f32 * 16.0 + plain_data[2] as f32) / 10.0,
-                (plain_data[2] as f32 * 16.0 + plain_data[3] as f32) / 10.0,
-                (plain_data[3] as f32 * 16.0 + plain_data[4] as f32) / 10.0,
-            );
-        }
-    }
-
-    None
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct Device {
     pub mac: String,
     pub key: String,
@@ -122,6 +32,105 @@ struct Device {
 }
 
 static DEVICES_JSON: &str = include_str!("devices.json");
+
+pub struct Decryptor {
+    devices: Vec<Device>,
+}
+
+impl Decryptor {
+    pub fn new() -> Self {
+        Decryptor {
+            devices: serde_json::from_str(DEVICES_JSON).unwrap(),
+        }
+    }
+
+    pub fn decode_frame_data(&self, data: &[u8]) -> Option<f32> {
+        if data.len() < 26 {
+            return None;
+        }
+
+        let mac_string = format!(
+            "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+            data[17], data[16], data[15], data[14], data[13], data[12]
+        );
+
+        let device_idx = <Vec<Device> as Clone>::clone(&self.devices)
+            .into_iter()
+            .find(|d| d.mac == mac_string);
+
+        if let Some(device) = device_idx {
+            let nonce: [u8; 12] = [
+                data[12], data[13], data[14], data[15], data[16], data[17], // device mac
+                data[9], data[10], // device type
+                data[11], // frame cnt
+                data[23], data[24], data[25], // ext.cnt
+            ];
+
+            let nonce: &GenericArray<u8, U12> = GenericArray::from_slice(&nonce);
+
+            let key = decode_hex(&device.key).expect("Unable to decode key");
+
+            let cipher = Aes128Ccm::new_from_slice(&key).unwrap();
+
+            let encrypted_data: &[u8] = &data[18..23];
+            let tag = &data[26..];
+
+            let to_decrypt = [encrypted_data, tag].concat();
+
+            let payload = Payload {
+                msg: &to_decrypt,
+                aad: &[0x11],
+            };
+
+            // println!("Nonce: {:?} ({:?})", encode_hex(&nonce), nonce.len());
+
+            // println!(
+            //     "To decrypt: {:?} ({:?})",
+            //     encode_hex(&to_decrypt),
+            //     to_decrypt.len()
+            // );
+
+            let plain_data = cipher.decrypt(nonce, payload);
+
+            if let Ok(plain_data) = plain_data {
+                let temp = (plain_data[4] as f32 * 16.0 + plain_data[3] as f32) / 10.0;
+
+                if plain_data[0] == 4 {
+                    println!("Je renvoie {:?}", temp);
+                    return Some(temp);
+                }
+
+                println!(
+                    "Decrypted: {:?} {:?} : {:?}",
+                    encode_hex(&plain_data),
+                    plain_data,
+                    if plain_data[0] == 4 {
+                        "TEMP"
+                    } else {
+                        "HUMIDITY"
+                    },
+                );
+
+                println!(
+                    "{:?} {:?} {:?} {:?}",
+                    (plain_data[1] as f32 * 16.0 + plain_data[0] as f32) / 10.0,
+                    (plain_data[2] as f32 * 16.0 + plain_data[1] as f32) / 10.0,
+                    (plain_data[3] as f32 * 16.0 + plain_data[2] as f32) / 10.0,
+                    (plain_data[4] as f32 * 16.0 + plain_data[3] as f32) / 10.0,
+                );
+                println!(
+                    "{:?} {:?} {:?} {:?}",
+                    (plain_data[0] as f32 * 16.0 + plain_data[1] as f32) / 10.0,
+                    (plain_data[1] as f32 * 16.0 + plain_data[2] as f32) / 10.0,
+                    (plain_data[2] as f32 * 16.0 + plain_data[3] as f32) / 10.0,
+                    (plain_data[3] as f32 * 16.0 + plain_data[4] as f32) / 10.0,
+                );
+            }
+        }
+
+        None
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -158,22 +167,20 @@ mod tests {
             "02 01 06 1A 16 95 FE 58 58 5B 05 4F 5C 2D 4E 38 C1 A4 48 86 C7 D7 A1 00 00 00 7A 54 16 8F", // 23.5°C 60%
         ];
 
+        let decryptor = Decryptor::new();
         for frame in frames.iter() {
             let bytes = frame
                 .split(" ")
                 .map(|x| u8::from_str_radix(x, 16).unwrap())
                 .collect::<Vec<u8>>();
-
-            let result = decode_frame_data(&bytes);
-
+            let result = decryptor.decode_frame_data(&bytes);
             dbg!(result);
-
             //assert!(result.is_some());
         }
 
         let bytes =
             decode_hex("0201061A1695FE58585B054F5C2D4E38C1A44886C7D7A10000007A54168F").unwrap();
 
-        assert_eq!(decode_frame_data(&bytes), Some(23.6));
+        assert_eq!(decryptor.decode_frame_data(&bytes), Some(23.6));
     }
 }
