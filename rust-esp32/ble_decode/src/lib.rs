@@ -5,7 +5,7 @@ use ccm::{
     Ccm,
 };
 use serde::Deserialize;
-use std::num::ParseIntError;
+use std::{collections::HashMap, num::ParseIntError};
 
 pub type Aes128Ccm = Ccm<Aes128, U4, U12>;
 
@@ -34,14 +34,17 @@ struct Device {
 static DEVICES_JSON: &str = include_str!("devices.json");
 
 pub struct Decryptor {
-    devices: Vec<Device>,
+    devices: HashMap<String, Device>,
 }
 
 impl Decryptor {
     pub fn new() -> Self {
-        Decryptor {
-            devices: serde_json::from_str(DEVICES_JSON).unwrap(),
-        }
+        let devices_list: Vec<Device> = serde_json::from_str(DEVICES_JSON).unwrap();
+
+        let devices: HashMap<String, Device> =
+            HashMap::from_iter(devices_list.iter().map(|d| (d.mac.clone(), d.clone())));
+
+        Decryptor { devices }
     }
 
     pub fn decode_frame_data(&self, data: &[u8]) -> Option<f32> {
@@ -54,11 +57,7 @@ impl Decryptor {
             data[17], data[16], data[15], data[14], data[13], data[12]
         );
 
-        let device_idx = <Vec<Device> as Clone>::clone(&self.devices)
-            .into_iter()
-            .find(|d| d.mac == mac_string);
-
-        if let Some(device) = device_idx {
+        if let Some(device) = &self.devices.get(&mac_string) {
             let nonce: [u8; 12] = [
                 data[12], data[13], data[14], data[15], data[16], data[17], // device mac
                 data[9], data[10], // device type
