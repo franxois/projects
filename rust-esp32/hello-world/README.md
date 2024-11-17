@@ -5,3 +5,10 @@
 ## Code
 
 BLE example code is available at https://github.com/taks/esp32-nimble/tree/main/examples
+
+Send frames to web server
+
+Todo:
+
+- [ ] send payload
+- [ ] server side : store into db

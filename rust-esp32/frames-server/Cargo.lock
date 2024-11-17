@@ -977,6 +977,8 @@ dependencies = [
  "env_logger",
  "juniper",
  "log",
+ "serde",
+ "serde_json",
  "sqlx",
 ]
 
