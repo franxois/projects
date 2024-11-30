@@ -23,6 +23,7 @@ use esp_idf_svc::{
 
 use embedded_svc::http::client::Client as HttpClient;
 use log::{error, info};
+pub mod base64;
 pub mod rgb;
 pub mod rmt_neopixel;
 
@@ -58,6 +59,8 @@ struct BLEAdvertisedData {
     name: String,
     mac: String,
     temperature: f32,
+    #[serde(with = "base64::base64")]
+    payload: Vec<u8>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -199,6 +202,7 @@ fn main() -> anyhow::Result<()> {
                                         name: room_option.unwrap().to_string(),
                                         temperature: temp,
                                         mac: device.addr().to_string(),
+                                        payload: data.payload().to_vec(),
                                     },
                                 );
                             }

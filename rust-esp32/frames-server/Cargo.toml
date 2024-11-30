@@ -12,3 +12,4 @@ log = "0.4.22"
 sqlx = { version = "0.8" , features = ["runtime-async-std", "tls-native-tls" , "sqlite"] }
 serde = { version = "1" }
 serde_json = { version = "1" }
+base64 = "0.13"

@@ -11,4 +11,5 @@ Send frames to web server
 Todo:
 
 - [ ] send payload
+- [ ] handle wifi connection loss
 - [ ] server side : store into db

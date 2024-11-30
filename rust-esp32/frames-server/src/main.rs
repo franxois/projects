@@ -20,6 +20,8 @@ use crate::services_rest::get_frames;
 
 use sqlx::sqlite::SqlitePool;
 
+pub mod base64;
+
 pub struct AppState {
     schema: Arc<schema::Schema>,
     db_pool: SqlitePool,
