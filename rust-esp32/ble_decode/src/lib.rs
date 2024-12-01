@@ -95,35 +95,35 @@ impl Decryptor {
                 let temp = (plain_data[4] as f32 * 16.0 + plain_data[3] as f32) / 10.0;
 
                 if plain_data[0] == 4 {
-                    println!("Je renvoie {:?}", temp);
+                    // println!("Je renvoie {:?}", temp);
                     return Some(temp);
                 }
 
-                println!(
-                    "Decrypted: {:?} {:?} : {:?}",
-                    encode_hex(&plain_data),
-                    plain_data,
-                    if plain_data[0] == 4 {
-                        "TEMP"
-                    } else {
-                        "HUMIDITY"
-                    },
-                );
+                // println!(
+                //     "Decrypted: {:?} {:?} : {:?}",
+                //     encode_hex(&plain_data),
+                //     plain_data,
+                //     if plain_data[0] == 4 {
+                //         "TEMP"
+                //     } else {
+                //         "HUMIDITY"
+                //     },
+                // );
 
-                println!(
-                    "{:?} {:?} {:?} {:?}",
-                    (plain_data[1] as f32 * 16.0 + plain_data[0] as f32) / 10.0,
-                    (plain_data[2] as f32 * 16.0 + plain_data[1] as f32) / 10.0,
-                    (plain_data[3] as f32 * 16.0 + plain_data[2] as f32) / 10.0,
-                    (plain_data[4] as f32 * 16.0 + plain_data[3] as f32) / 10.0,
-                );
-                println!(
-                    "{:?} {:?} {:?} {:?}",
-                    (plain_data[0] as f32 * 16.0 + plain_data[1] as f32) / 10.0,
-                    (plain_data[1] as f32 * 16.0 + plain_data[2] as f32) / 10.0,
-                    (plain_data[2] as f32 * 16.0 + plain_data[3] as f32) / 10.0,
-                    (plain_data[3] as f32 * 16.0 + plain_data[4] as f32) / 10.0,
-                );
+                // println!(
+                //     "{:?} {:?} {:?} {:?}",
+                //     (plain_data[1] as f32 * 16.0 + plain_data[0] as f32) / 10.0,
+                //     (plain_data[2] as f32 * 16.0 + plain_data[1] as f32) / 10.0,
+                //     (plain_data[3] as f32 * 16.0 + plain_data[2] as f32) / 10.0,
+                //     (plain_data[4] as f32 * 16.0 + plain_data[3] as f32) / 10.0,
+                // );
+                // println!(
+                //     "{:?} {:?} {:?} {:?}",
+                //     (plain_data[0] as f32 * 16.0 + plain_data[1] as f32) / 10.0,
+                //     (plain_data[1] as f32 * 16.0 + plain_data[2] as f32) / 10.0,
+                //     (plain_data[2] as f32 * 16.0 + plain_data[3] as f32) / 10.0,
+                //     (plain_data[3] as f32 * 16.0 + plain_data[4] as f32) / 10.0,
+                // );
             }
         }
 
