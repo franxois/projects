@@ -1,23 +1,29 @@
-use esp_idf_svc::http::client::EspHttpConnection;
-use http_server::create_http_server;
-use serde_json::json;
-use std::sync::{Arc, Mutex};
-
 use embedded_svc::{
     io::Write,
     utils::io,
     wifi::{AuthMethod, ClientConfiguration, Configuration},
 };
 use esp32_nimble::{enums::AdvType, BLEDevice, BLEScan};
-use esp_idf_svc::hal::task::block_on;
 use esp_idf_svc::hal::{
     prelude::Peripherals,
     rmt::{config::TransmitConfig, TxRmtDriver},
 };
+use esp_idf_svc::http::client::EspHttpConnection;
+use esp_idf_svc::sntp::EspSntp;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     nvs::EspDefaultNvsPartition,
     wifi::{BlockingWifi, EspWifi},
+};
+use esp_idf_svc::{
+    hal::task::block_on,
+    sys::{heap_caps_get_free_size, MALLOC_CAP_DEFAULT},
+};
+use http_server::create_http_server;
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
 };
 
 use embedded_svc::http::client::Client as HttpClient;
@@ -86,8 +92,13 @@ fn main() -> anyhow::Result<()> {
 
     info!("Wifi DHCP info: {:?}", ip_info);
 
+    let _sntp = EspSntp::new_default()?;
+    info!("SNTP initialized");
+
     let rgb_handler: Arc<Mutex<TxRmtDriver<'static>>> = Arc::new(Mutex::new(tx));
     let rgb_handler2 = rgb_handler.clone();
+
+    let mut temp_history: HashMap<String, Vec<(i64, f32)>> = HashMap::new();
 
     let _http_server = create_http_server(rgb_handler)?;
 
@@ -103,13 +114,16 @@ fn main() -> anyhow::Result<()> {
             Err(e) => error!("Wifi error: {}", e),
         };
 
-        block_on(run_ble_scan(&rgb_handler2))
+        block_on(run_ble_scan(&rgb_handler2, &mut temp_history));
     }
 
     Ok(())
 }
 
-async fn run_ble_scan(rgb_handler: &Arc<Mutex<TxRmtDriver<'static>>>) {
+async fn run_ble_scan(
+    rgb_handler: &Arc<Mutex<TxRmtDriver<'static>>>,
+    history: &mut HashMap<String, Vec<(i64, f32)>>,
+) {
     info!("Start BLE scan!");
 
     let ble_device = BLEDevice::take();
@@ -151,33 +165,72 @@ async fn run_ble_scan(rgb_handler: &Arc<Mutex<TxRmtDriver<'static>>>) {
                     let decryptor = Decryptor::new();
 
                     if let Some(temp) = decryptor.decode_frame_data(data.payload()) {
-                        // info!("Temperature {:?} : {}°C", room_option, temp);
+                        info!("Temperature {:?} : {}°C", room_option, temp);
+                        info!("Current time: {:?}", std::time::SystemTime::now());
 
-                        let mut client =
-                            HttpClient::wrap(EspHttpConnection::new(&Default::default()).unwrap());
+                        let room_name = room_option.unwrap().to_string();
 
-                        let mut tx = rgb_handler.lock().unwrap();
-                        neopixel(Rgb::new(0, 5, 0), &mut tx).unwrap();
-
-                        let send = post_request(
-                            &mut client,
-                            BLEAdvertisedData {
-                                name: room_option.unwrap().to_string(),
-                                temperature: temp,
-                                mac: device.addr().to_string(),
-                                payload: data.payload().to_vec(),
-                            },
-                        );
-
-                        neopixel(Rgb::new(0, 0, 5), &mut tx).unwrap();
-
-                        if send.is_err() {
-                            error!(
-                                "Unable to send temperature {} : {}°C",
-                                room_option.unwrap().to_string(),
-                                temp
-                            );
+                        if !history.contains_key(&room_name) {
+                            history.insert(room_name.clone(), Vec::new());
                         }
+
+                        if history.contains_key(&room_name) {
+                            let mut history_entry = history.get_mut(&room_name).unwrap();
+                            let unix_timestamp = std::time::SystemTime::now()
+                                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                .expect("Unable to get unixtimestamp")
+                                .as_secs() as i64;
+
+                            let mut is_new_value = true;
+                            let history_len = history_entry.len();
+
+                            if history_len >= 3 {
+                                if history_entry[history_len - 1].1 == temp
+                                    && history_entry[history_len - 2].1 == temp
+                                {
+                                    info!("Temperature is the same, just update the timestamp");
+                                    history_entry[history_len - 1].0 = unix_timestamp;
+                                    is_new_value = false;
+                                }
+                            }
+
+                            if is_new_value {
+                                history_entry.push((unix_timestamp, temp));
+                            }
+
+                            info!("History size {:?}: {:#?}", room_name, history_entry.len());
+                        }
+
+                        unsafe {
+                            let free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+                            info!("Free heap: {}", free_heap);
+                        }
+
+                        // let mut client =
+                        //     HttpClient::wrap(EspHttpConnection::new(&Default::default()).unwrap());
+
+                        // let mut tx = rgb_handler.lock().unwrap();
+                        // neopixel(Rgb::new(0, 5, 0), &mut tx).unwrap();
+
+                        // let send = post_request(
+                        //     &mut client,
+                        //     BLEAdvertisedData {
+                        //         name: room_option.unwrap().to_string(),
+                        //         temperature: temp,
+                        //         mac: device.addr().to_string(),
+                        //         payload: data.payload().to_vec(),
+                        //     },
+                        // );
+
+                        // neopixel(Rgb::new(0, 0, 5), &mut tx).unwrap();
+
+                        // if send.is_err() {
+                        //     error!(
+                        //         "Unable to send temperature {} : {}°C",
+                        //         room_option.unwrap().to_string(),
+                        //         temp
+                        //     );
+                        // }
                     }
                 }
 
