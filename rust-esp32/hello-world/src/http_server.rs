@@ -32,7 +32,7 @@ struct FormData<'a> {
 
 pub fn create_http_server(
     rgb_handler: Arc<Mutex<TxRmtDriver<'static>>>,
-    // history_access: Arc<Mutex<HashMap<String, Vec<(i64, f32)>>>>,
+    history: Arc<Mutex<HashMap<String, Vec<(i64, f32)>>>>,
 ) -> anyhow::Result<EspHttpServer<'static>> {
     let server_configuration = esp_idf_svc::http::server::Configuration {
         stack_size: STACK_SIZE,
@@ -47,13 +47,13 @@ pub fn create_http_server(
             .map(|_| ())
     })?;
 
-    // server.fn_handler("/temp", Method::Get, |req| {
-    //     let data = history_access.lock().unwrap();
+    server.fn_handler("/temp", Method::Get, move |req| {
+        let data = &*history.lock().unwrap();
 
-    //     let b = serde_json::to_string(data).unwrap();
-    //     dbg!(&b);
-    //     req.into_ok_response()?.write_all(b.as_bytes()).map(|_| ())
-    // })?;
+        let b = serde_json::to_string(data).unwrap();
+        // dbg!(&b);
+        req.into_ok_response()?.write_all(b.as_bytes()).map(|_| ())
+    })?;
 
     server.fn_handler::<anyhow::Error, _>("/post", Method::Post, move |mut req| {
         let len = req.content_len().unwrap_or(0) as usize;

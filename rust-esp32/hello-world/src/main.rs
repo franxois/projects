@@ -98,9 +98,12 @@ fn main() -> anyhow::Result<()> {
     let rgb_handler: Arc<Mutex<TxRmtDriver<'static>>> = Arc::new(Mutex::new(tx));
     let rgb_handler2 = rgb_handler.clone();
 
-    let mut temp_history: HashMap<String, Vec<(i64, f32)>> = HashMap::new();
+    let temp_history: HashMap<String, Vec<(i64, f32)>> = HashMap::new();
+    let history_arc: Arc<Mutex<HashMap<String, Vec<(i64, f32)>>>> =
+        Arc::new(Mutex::new(temp_history));
+    let history_arc2 = history_arc.clone();
 
-    let _http_server = create_http_server(rgb_handler)?;
+    let _http_server = create_http_server(rgb_handler, history_arc)?;
 
     loop {
         let wifi_info = wifi.is_connected();
@@ -114,7 +117,7 @@ fn main() -> anyhow::Result<()> {
             Err(e) => error!("Wifi error: {}", e),
         };
 
-        block_on(run_ble_scan(&rgb_handler2, &mut temp_history));
+        block_on(run_ble_scan(&rgb_handler2, &history_arc2));
     }
 
     Ok(())
@@ -122,7 +125,7 @@ fn main() -> anyhow::Result<()> {
 
 async fn run_ble_scan(
     rgb_handler: &Arc<Mutex<TxRmtDriver<'static>>>,
-    history: &mut HashMap<String, Vec<(i64, f32)>>,
+    history_arc: &Arc<Mutex<HashMap<String, Vec<(i64, f32)>>>>,
 ) {
     info!("Start BLE scan!");
 
@@ -166,9 +169,10 @@ async fn run_ble_scan(
 
                     if let Some(temp) = decryptor.decode_frame_data(data.payload()) {
                         info!("Temperature {:?} : {}°C", room_option, temp);
-                        info!("Current time: {:?}", std::time::SystemTime::now());
 
                         let room_name = room_option.unwrap().to_string();
+
+                        let mut history = history_arc.lock().unwrap();
 
                         if !history.contains_key(&room_name) {
                             history.insert(room_name.clone(), Vec::new());
