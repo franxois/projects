@@ -47,7 +47,7 @@ impl Decryptor {
         Decryptor { devices }
     }
 
-    pub fn decode_frame_data(&self, data: &[u8]) -> Option<f32> {
+    pub fn decode_frame_data(&self, data: &[u8]) -> Option<u16> {
         if data.len() < 26 {
             return None;
         }
@@ -92,9 +92,10 @@ impl Decryptor {
             let plain_data = cipher.decrypt(nonce, payload);
 
             if let Ok(plain_data) = plain_data {
-                let temp = (plain_data[4] as f32 * 16.0 + plain_data[3] as f32) / 10.0;
-
                 if plain_data[0] == 4 {
+                    assert!(((0xFF as u16) << 8) + 0xFF as u16 == 0xFFFF);
+
+                    let temp: u16 = ((plain_data[4] as u16) << 8) + plain_data[3] as u16;
                     // println!("Je renvoie {:?}", temp);
                     return Some(temp);
                 }
@@ -180,6 +181,6 @@ mod tests {
         let bytes =
             decode_hex("0201061A1695FE58585B054F5C2D4E38C1A44886C7D7A10000007A54168F").unwrap();
 
-        assert_eq!(decryptor.decode_frame_data(&bytes), Some(23.6));
+        assert_eq!(decryptor.decode_frame_data(&bytes), Some(236_u16));
     }
 }

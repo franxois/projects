@@ -1,32 +1,24 @@
-use embedded_svc::{
-    io::Write,
-    utils::io,
-    wifi::{AuthMethod, ClientConfiguration, Configuration},
-};
+use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
 use esp32_nimble::{enums::AdvType, BLEDevice, BLEScan};
+use esp_idf_svc::hal::task::block_on;
 use esp_idf_svc::hal::{
     prelude::Peripherals,
     rmt::{config::TransmitConfig, TxRmtDriver},
 };
-use esp_idf_svc::http::client::EspHttpConnection;
 use esp_idf_svc::sntp::EspSntp;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     nvs::EspDefaultNvsPartition,
     wifi::{BlockingWifi, EspWifi},
 };
-use esp_idf_svc::{
-    hal::task::block_on,
-    sys::{heap_caps_get_free_size, MALLOC_CAP_DEFAULT},
-};
 use http_server::create_http_server;
-use serde_json::json;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    thread,
+    time::Duration,
 };
 
-use embedded_svc::http::client::Client as HttpClient;
 use log::{error, info};
 pub mod base64;
 mod http_server;
@@ -44,6 +36,8 @@ extern crate dotenv_codegen;
 
 const SSID: &str = dotenv!("WIFI_SSID");
 const PASSWORD: &str = dotenv!("WIFI_PASS");
+
+const DEVICE_HISTORY_LIMIT: usize = 5;
 
 #[derive(Serialize)]
 struct BLEAdvertisedData {
@@ -98,9 +92,11 @@ fn main() -> anyhow::Result<()> {
     let rgb_handler: Arc<Mutex<TxRmtDriver<'static>>> = Arc::new(Mutex::new(tx));
     let rgb_handler2 = rgb_handler.clone();
 
-    let temp_history: HashMap<String, Vec<(i64, f32)>> = HashMap::new();
-    let history_arc: Arc<Mutex<HashMap<String, Vec<(i64, f32)>>>> =
-        Arc::new(Mutex::new(temp_history));
+    // 30 days in seconds : 2_592_000 => we may try u32 4_294_967_295u32
+    // Keep the temperature as u8
+    let temp_history: HashMap<String, Vec<(i64, u16)>> = HashMap::new();
+
+    let history_arc = Arc::new(Mutex::new(temp_history));
     let history_arc2 = history_arc.clone();
 
     let _http_server = create_http_server(rgb_handler, history_arc)?;
@@ -125,7 +121,7 @@ fn main() -> anyhow::Result<()> {
 
 async fn run_ble_scan(
     rgb_handler: &Arc<Mutex<TxRmtDriver<'static>>>,
-    history_arc: &Arc<Mutex<HashMap<String, Vec<(i64, f32)>>>>,
+    history_arc: &Arc<Mutex<HashMap<String, Vec<(i64, u16)>>>>,
 ) {
     info!("Start BLE scan!");
 
@@ -168,7 +164,19 @@ async fn run_ble_scan(
                     let decryptor = Decryptor::new();
 
                     if let Some(temp) = decryptor.decode_frame_data(data.payload()) {
-                        info!("Temperature {:?} : {}°C", room_option, temp);
+                        info!(
+                            "Temperature {:?} : {:.1}°C",
+                            room_option,
+                            (temp as f32) * 0.1
+                        );
+
+                        let rgb_handler2 = rgb_handler.clone();
+                        thread::spawn(move || {
+                            let mut tx = rgb_handler2.lock().unwrap();
+                            neopixel(Rgb::new(0, 5, 0), &mut tx).unwrap();
+                            thread::sleep(Duration::from_millis(50));
+                            neopixel(Rgb::new(0, 0, 5), &mut tx).unwrap();
+                        });
 
                         let room_name = room_option.unwrap().to_string();
 
@@ -179,7 +187,7 @@ async fn run_ble_scan(
                         }
 
                         if history.contains_key(&room_name) {
-                            let mut history_entry = history.get_mut(&room_name).unwrap();
+                            let history_entry = history.get_mut(&room_name).unwrap();
                             let unix_timestamp = std::time::SystemTime::now()
                                 .duration_since(std::time::SystemTime::UNIX_EPOCH)
                                 .expect("Unable to get unixtimestamp")
@@ -188,7 +196,7 @@ async fn run_ble_scan(
                             let mut is_new_value = true;
                             let history_len = history_entry.len();
 
-                            if history_len >= 3 {
+                            if history_len >= 2 {
                                 if history_entry[history_len - 1].1 == temp
                                     && history_entry[history_len - 2].1 == temp
                                 {
@@ -200,14 +208,13 @@ async fn run_ble_scan(
 
                             if is_new_value {
                                 history_entry.push((unix_timestamp, temp));
+
+                                if history_entry.len() > DEVICE_HISTORY_LIMIT {
+                                    history_entry.remove(0);
+                                }
                             }
 
                             info!("History size {:?}: {:#?}", room_name, history_entry.len());
-                        }
-
-                        unsafe {
-                            let free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-                            info!("Free heap: {}", free_heap);
                         }
 
                         // let mut client =
@@ -269,49 +276,6 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()>
 
     wifi.wait_netif_up()?;
     info!("Wifi netif up");
-
-    Ok(())
-}
-
-fn post_request(
-    client: &mut HttpClient<EspHttpConnection>,
-    data: BLEAdvertisedData,
-) -> anyhow::Result<()> {
-    // Prepare payload
-    let binding = json!(data).to_string();
-    let payload = binding.as_bytes();
-
-    // Prepare headers and URL
-    let content_length_header = format!("{}", payload.len());
-    let headers = [
-        ("content-type", "application/json"),
-        ("content-length", &*content_length_header),
-    ];
-    let url = "http://192.168.1.129:8080/frame";
-
-    // Send request
-    let mut request = client.post(url, &headers)?;
-    request.write_all(payload)?;
-    request.flush()?;
-    // info!("-> POST {}", url);
-    let mut response = request.submit()?;
-
-    // Process response
-    // let status = response.status();
-    // info!("<- {}", status);
-    let mut buf = [0u8; 1024];
-    let bytes_read = io::try_read_full(&mut response, &mut buf).map_err(|e| e.0)?;
-    // info!("Read {} bytes", bytes_read);
-    match std::str::from_utf8(&buf[0..bytes_read]) {
-        Ok(body_string) => {
-            // info!(
-            //     "Response body (truncated to {} bytes): {:?}",
-            //     buf.len(),
-            //     body_string
-            // )
-        }
-        Err(e) => error!("Error decoding response body: {}", e),
-    };
 
     Ok(())
 }

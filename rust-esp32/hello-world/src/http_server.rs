@@ -1,16 +1,18 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
-
 use embedded_svc::{
     http::{Headers, Method},
     io::{Read, Write},
 };
-use esp_idf_svc::hal::rmt::TxRmtDriver;
 use esp_idf_svc::http::server::EspHttpServer;
+use esp_idf_svc::{
+    hal::rmt::TxRmtDriver,
+    sys::{heap_caps_get_free_size, MALLOC_CAP_DEFAULT},
+};
 use log::info;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use crate::{rgb::Rgb, rmt_neopixel::neopixel};
 
@@ -30,9 +32,14 @@ struct FormData<'a> {
     color: &'a str,
 }
 
+#[derive(Serialize)]
+struct Debug {
+    free_heap: usize,
+}
+
 pub fn create_http_server(
     rgb_handler: Arc<Mutex<TxRmtDriver<'static>>>,
-    history: Arc<Mutex<HashMap<String, Vec<(i64, f32)>>>>,
+    history: Arc<Mutex<HashMap<String, Vec<(i64, u16)>>>>,
 ) -> anyhow::Result<EspHttpServer<'static>> {
     let server_configuration = esp_idf_svc::http::server::Configuration {
         stack_size: STACK_SIZE,
@@ -45,6 +52,15 @@ pub fn create_http_server(
         req.into_ok_response()?
             .write_all(INDEX_HTML.as_bytes())
             .map(|_| ())
+    })?;
+
+    server.fn_handler("/debug", Method::Get, move |req| {
+        let free_heap = unsafe { heap_caps_get_free_size(MALLOC_CAP_DEFAULT) };
+
+        let debug = Debug { free_heap };
+
+        let b = serde_json::to_string(&debug).unwrap();
+        req.into_ok_response()?.write_all(b.as_bytes()).map(|_| ())
     })?;
 
     server.fn_handler("/temp", Method::Get, move |req| {

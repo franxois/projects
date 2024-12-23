@@ -2,11 +2,15 @@
 
 `cargo run` to build, flash and monitor the application on the esp32-c6
 
+`cargo run --release` to build, flash and monitor the application on the esp32-c6 more optimized (?)
+
 ## Code
 
 BLE example code is available at https://github.com/taks/esp32-nimble/tree/main/examples
 
 Send frames to web server
+
+
 
 Todo:
 
